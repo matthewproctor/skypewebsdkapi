@@ -1,23 +1,47 @@
-/* 
-   Generic Functions
-*/
-function log(texttolog) {
-    var d = new Date();
-    var time = padLeft(d.getHours(), 2) + ":" + padLeft(d.getMinutes(), 2) + ":" + padLeft(d.getSeconds(), 2) + ":" + padLeft(d.getMilliseconds(), 3);
-    $('#logging_box').prepend(time + ": " + texttolog + "<br>");
-}
-function padLeft(nr, n, str) {
-    return Array(n - String(nr).length + 1).join(str || '0') + nr;
+// replace this with the credentials of the Lync or Skype for Business account
+// that will be used to send the Instant Message.  Change these to your own, as 
+// they are not real!
+var skype_username = "matthew@contoso.com";
+var skype_password = "mypassword";
+
+// this is the recipient to whom we'll send a message - retrieved from the querystring or HTTP POST data
+var recipient = "";
+// and this is the actual message  - retrieved from the querystring or HTTP POST data
+var the_message = "";
+
+// show_logs determines whether logs are sent to the logging_box div. Set to false
+// to display logging.  Disabling logs improves performance somewhat.
+var show_logs = true;
+
+
+// function to extend jQuery to easily check for and return a querystring value
+function getParameterByName(name) {
+    name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+    var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+        results = regex.exec(location.search);
+    return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+}	
+	
+function pause(howlongfor){
+    log("Pausing for " + howlongfor + "ms");
+    var currentTime = new Date().getTime();
+    while (currentTime + howlongfor >= new Date().getTime()) {      }
 }
 
-/* 
-   How to send an Instant Message using the Skype Web SDK 
-*/
+function nicetime() {
+    var d = new Date();
+    return padLeft(d.getHours(), 2) + ":" + padLeft(d.getMinutes(), 2) + ":" + padLeft(d.getSeconds(), 2) + ":" + padLeft(d.getMilliseconds(), 3);
+}
+
+function log(texttolog) {    
+	if (show_logs){
+		$('#logging_box').append(nicetime() + ": " + texttolog + "<br>");
+	}
+}
+function padLeft(nr, n, str) { return Array(n - String(nr).length + 1).join(str || '0') + nr; }
+
 $(function () {
     'use strict';
-
-    log("App Loaded");
-    $('#chatfunctions').hide();
 
     var Application
     var client;
@@ -28,99 +52,95 @@ $(function () {
     }, function (api) {
         Application = api.application;
         client = new Application();
-    }, function (err) {
-        log('some error occurred: ' + err);
-    });
+        log("Client Created");
+        
+        // Check querystring for required variables - recipient and message
 
-    log("Client Created");
+		if (getParameterByName('recipient')!=""){
+			recipient = getParameterByName('recipient');
+			log("Found Recipient: " + recipient);
+		} else {
+			log("No recipient found!");
+			return;
+		}
+		
+		if (getParameterByName('message')!=""){
+			the_message = getParameterByName('message');
+			log("Found message: " + the_message);
+		} else {
+			log("No message found!");
+			return;
+		}
+		
+		// Now check for optional variables - username and password
+		if (getParameterByName('username')!=""){
+			skype_username = getParameterByName('username');
+			log("Found skype username: " + skype_username);
+		} 
+		if (getParameterByName('password')!=""){
+			skype_password = getParameterByName('password');
+			log("Found password.");
+		} 
 
-    // when the user clicks the "Sign In" button
-    $('#signin').click(function () {
-        $('#signin').hide();
-        log('Signing in...');
-        // and invoke its asynchronous "signIn" method
+        log('Signing in ' + $('#address').text());
         client.signInManager.signIn({
-            username: $('#address').text(),
-            password: $('#password').text()
+            username: skype_username,skype_password
         }).then(function () {
-            log('Logged In Succesfully');
-            $('#loginbox').hide();
-            $('#chatfunctions').show();
-
+            log('Logged In Successfully');
+          
             //create a new conversation
             log("Creating a new Conversation");
             conversation = client.conversationsManager.createConversation();
 
+            log("Starting chatService");
+            conversation.chatService.start().then(function () {
+                log('chatService started!');
 
+                conversation.addParticipant("sip:" + recipient).then(function () {
+                    log(recipient + " added!");
+
+                    pause(1000);
+                    log('Sending message: ' + the_message);
+                    conversation.chatService.sendMessage(the_message).then(function () {
+                        log('Message sent.');
+
+                        pause(1000);
+
+                        conversation.chatService.stop().then(function () {
+                            log('chatService stopped.');
+                        }).then(null, function (error) {
+                            log('Error Stopping chatService:' + error);
+                        });
+
+                        log("Signing Out");
+                        client.signInManager.signOut().then(
+                            function () {
+                                log('Signed out');
+                            },
+                        function (error) {
+                            log('Error signing out:' + error);
+                        });
+
+                    }).then(null, function (error) {
+                        log('Error Sending Message:' + error);
+                    });                   
+                    
+
+                }).then(null, function (error) {
+                    log('Error adding participant:' + error);
+                });
+
+            }).then(null, function (error) {
+                log('Error starting chatService' + error);
+            });                       
+            
         }).then(null, function (error) {
             // if either of the operations above fails, tell the user about the problem
-            log(error || 'Oops, Something went wrong.');
-            $('#signin').show()
+            log("Error signing in: "+error );
         });
-    });
 
-    $('#add_participant').click(function () {
-        var the_participant = $('#the_participant').text();
-        log("Adding the participant " + the_participant);
-        conversation.addParticipant("sip:" + the_participant).then(function () {
-            log(the_participant + " added!");
-        }).then(null, function (error) {
-            log("Error:" + error);
-        });
-    });
-         
-    $('#send_message').click(function () {
-        var the_message = $('#the_message').text();
-        if (the_message != "") {
-            log('Sending message: ' + the_message);
-            conversation.chatService.sendMessage(the_message).then(function () {
-                log('Message sent.');
-            }).then(null, function (error) {
-                log('Error:' + error);
-            });
-        } else {
-            log('<b><font color=red>Please enter a message to send!</font></b>');
-        }
-    });
-
-    $('#startChat').click(function () {
-        log('Starting chatService...');
-        conversation.chatService.start().then(function () {
-            log('chatService started!');
-            $('#startChat').hide();
-        }).then(null, function (error) {
-            log('Error:' + error);
-        });
-    });
-
-    $('#stopChat').click(function () {
-        log('Stopping chatService...');
-        conversation.chatService.stop().then(function () {
-            log('chatService stopped.');
-            $('#startChat').show();
-        }).then(null, function (error) {
-            log('Error:' + error);
-        });
-    });
-
-    // when the user clicks on the "Sign Out" button
-    $('#signout').click(function () {
-        // start signing out
-        log("Signing Out");
-        client.signInManager.signOut().then(
-                //onSuccess callback
-                function () {
-                    // and report the success
-                    log('Signed out');
-                    $('#loginbox').show();
-                    $('#signin').show();
-                    $('#chatfunctions').hide();
-                },
-            //onFailure callback
-            function (error) {
-                // or a failure
-                log(error || 'Cannot Sign Out');
-            });
+    }, function (err) {
+        log('some error occurred: ' + err);
     });
 
 });
