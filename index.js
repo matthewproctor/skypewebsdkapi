@@ -82,7 +82,7 @@ $(function () {
 			log("Found password.");
 		} 
 
-        log('Signing in ' + $('#address').text());
+        log('Signing in ' + skype_username);
         client.signInManager.signIn({
             username: skype_username,skype_password
         }).then(function () {
